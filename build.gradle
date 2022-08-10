@@ -11,7 +11,7 @@ apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'eclipse'
 apply plugin: 'maven-publish'
 
-version = '1.4'
+version = '1.5'
 group = 'me.miquiis.devlog' // http://maven.apache.org/guides/mini/guide-naming-conventions.html
 archivesBaseName = 'devlog'
 
@@ -44,6 +44,7 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 dependencies {
     minecraft 'net.minecraftforge:forge:1.16.5-36.2.9'
+    runtimeOnly fileTree(dir: 'libs', include: ['*.jar'])
 }
 
 jar {

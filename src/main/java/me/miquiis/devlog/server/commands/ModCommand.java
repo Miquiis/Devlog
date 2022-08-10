@@ -8,9 +8,7 @@ public class ModCommand {
 
     public ModCommand(CommandDispatcher<CommandSource> dispatcher)
     {
-        dispatcher.register(Commands.literal("devlog")
-
-        );
+        dispatcher.register(Commands.literal("devlog"));
     }
 
 }

@@ -1,0 +1,23 @@
+{
+  "tabName": "Example Mod",
+  "tabDescription": "Quick description of this mod.",
+  "tabItem": "minecraft:stick",
+  "tabSections": [
+    {
+      "sectionName": "Example Section",
+      "sectionItem": "minecraft:diamond",
+      "sectionPage":  {
+        "pageTitle": "Example Page",
+        "pageContents": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean imperdiet hendrerit nunc non varius. Nullam scelerisque urna et nibh elementum, scelerisque volutpat ex mollis. Etiam sed sodales nunc, eu euismod orci. Maecenas sed risus varius, volutpat purus ac, ullamcorper nibh. Vestibulum mattis libero non nulla scelerisque, vel sodales mauris vehicula."
+      }
+    },
+    {
+      "sectionName": "Another Example Section",
+      "sectionItem": "minecraft:emerald",
+      "sectionPage":  {
+        "pageTitle": "Example Page 2",
+        "pageContents": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Etiam congue sagittis orci sit amet commodo. Quisque sed iaculis purus, sit amet consequat ligula. Suspendisse tincidunt."
+      }
+    }
+  ]
+}
