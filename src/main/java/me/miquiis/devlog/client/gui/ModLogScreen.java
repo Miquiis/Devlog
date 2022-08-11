@@ -1,13 +1,23 @@
 package me.miquiis.devlog.client.gui;
 
 import com.mojang.blaze3d.matrix.MatrixStack;
+import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
 import me.miquiis.devlog.Devlog;
+import me.miquiis.devlog.common.data.ModLogManager;
 import me.miquiis.devlog.common.data.ModTab;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.AbstractGui;
 import net.minecraft.client.gui.FontRenderer;
+import net.minecraft.client.gui.screen.EditBookScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.inventory.InventoryScreen;
+import net.minecraft.client.gui.widget.Widget;
 import net.minecraft.client.gui.widget.button.Button;
+import net.minecraft.client.renderer.BufferBuilder;
+import net.minecraft.client.renderer.Rectangle2d;
+import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.util.IReorderingProcessor;
@@ -21,33 +31,54 @@ import net.minecraftforge.registries.ForgeRegistries;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ModLogScreen extends Screen {
 
-    public class ModTabButton extends Button {
+    public static class DoNotRenderButton extends Button {
+        public DoNotRenderButton(int x, int y, int width, int height, ITextComponent title, IPressable pressedAction) {
+            super(x, y, width, height, title, pressedAction);
+        }
+    }
 
-        private ModTab modTab;
+    public static class ModTabButton extends DoNotRenderButton {
 
-        public ModTabButton(int x, int y, int width, int height, ModTab modTab, ITextComponent title, IPressable pressedAction) {
+        private CustomModTab modTab;
+
+        public ModTabButton(int x, int y, int width, int height, CustomModTab modTab, ITextComponent title, IPressable pressedAction) {
             super(x, y, width, height, title, pressedAction);
             this.modTab = modTab;
         }
 
-        public void setModTab(ModTab modTab) {
+        public void setModTab(CustomModTab modTab) {
             this.modTab = modTab;
         }
     }
 
+    public static class CustomModTab {
+
+        private final ModTab modTab;
+        private final boolean isOnMemory;
+
+        public CustomModTab(ModTab modTab, boolean isOnMemory) {
+            this.modTab = modTab;
+            this.isOnMemory = isOnMemory;
+        }
+    }
+
     protected static final ResourceLocation ASSETS = new ResourceLocation(Devlog.MOD_ID, "textures/gui/menu/assets.png");
+
+    private ModLogManager modLogManager;
+
     private final int LINES_PER_PAGE = 11;
     private int guiLeft;
     private int guiTop;
     private int xSize = 147;
     private int ySize = 166;
 
-    private List<ModTab> availableTabs;
+    private List<CustomModTab> availableTabs;
 
-    private ModTab focusedTab;
+    private CustomModTab focusedTab;
     private ModTab.Section focusedSection;
 
     private int currentTabPage, currentSectionPage, currentPage;
@@ -68,6 +99,8 @@ public class ModLogScreen extends Screen {
     private Button tabUp, tabDown;
     private Button sectionUp, sectionDown;
 
+    private Button editButton, cancelEditButton, saveCopyButton;
+
     public ModLogScreen() {
         super(new TranslationTextComponent("devlog.menu.title"));
     }
@@ -75,46 +108,92 @@ public class ModLogScreen extends Screen {
     @Override
     protected void init() {
         super.init();
+        this.modLogManager = Devlog.getInstance().getModLogManager();
         this.guiLeft = (this.width - this.xSize) / 2;
         this.guiTop = (this.height - this.ySize) / 2;
         this.availableTabs = new ArrayList<>();
 
-        Devlog.getInstance().getModLogManager().getRegisteredModTabs().forEach((resourceLocation, modTab) -> {
+        modLogManager.getRegisteredModTabs().forEach((resourceLocation, modTab) -> {
             if (modTab != null && modTab.getTabName() != null)
             {
-                availableTabs.add(modTab);
+                CustomModTab customModTab = new CustomModTab(modTab, false);
+                availableTabs.add(customModTab);
             }
         });
 
-        this.tabUp = this.addButton(new Button(guiLeft - 5 - 17, guiTop - 6, 17, 11, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
+        modLogManager.getInMemoryTabs().forEach((resourceLocation, modTab) -> {
+            if (modTab != null && modTab.getTabName() != null)
+            {
+                CustomModTab customModTab = new CustomModTab(modTab, true);
+                availableTabs.add(customModTab);
+            }
+        });
+
+        this.tabUp = this.addButton(new DoNotRenderButton(guiLeft - 5 - 17, guiTop - 6, 17, 11, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
             System.out.println("Tab Up Arrow");
             currentTabPage = MathHelper.clamp(currentTabPage - 1, 0, 99);
         }));
 
-        this.tabDown = this.addButton(new Button(guiLeft - 5 - 17, guiTop + 159, 17, 11, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
+        this.tabDown = this.addButton(new DoNotRenderButton(guiLeft - 5 - 17, guiTop + 159, 17, 11, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
             System.out.println("Tab Down Arrow");
             currentTabPage = MathHelper.clamp(currentTabPage + 1, 0, 99);
         }));
 
-        this.sectionUp = this.addButton(new Button(guiLeft + 152, guiTop - 6, 17, 11, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
+        this.sectionUp = this.addButton(new DoNotRenderButton(guiLeft + 152, guiTop - 6, 17, 11, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
             System.out.println("Section Up Arrow");
             currentSectionPage = MathHelper.clamp(currentSectionPage - 1, 0, 99);
         }));
 
-        this.sectionDown = this.addButton(new Button(guiLeft + 152, guiTop + 159, 17, 11, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
+        this.sectionDown = this.addButton(new DoNotRenderButton(guiLeft + 152, guiTop + 159, 17, 11, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
             System.out.println("Section Down Arrow");
             currentSectionPage = MathHelper.clamp(currentSectionPage + 1, 0, 99);
         }));
 
-        this.pageTurn = this.addButton(new Button(guiLeft + 117, guiTop + 144, 18, 10, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
+        this.pageTurn = this.addButton(new DoNotRenderButton(guiLeft + 117, guiTop + 144, 18, 10, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
             System.out.println("Page Turn");
             currentPage = MathHelper.clamp(currentPage + 1, 0, 99);
         }));
 
-        this.pageBack = this.addButton(new Button(guiLeft + 12, guiTop + 144, 18, 10, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
+        this.pageBack = this.addButton(new DoNotRenderButton(guiLeft + 12, guiTop + 144, 18, 10, new StringTextComponent("up_arrow"), p_onPress_1_ -> {
             System.out.println("Page Back");
             currentPage = MathHelper.clamp(currentPage - 1, 0, 99);
         }));
+
+        this.editButton = this.addButton(new Button(guiLeft + 7, guiTop + 170, 50, 20, new StringTextComponent("Edit"), p_onPress_1_ -> {
+            ResourceLocation resourceLocation = modLogManager.getModTabResourceLocation(focusedTab.modTab);
+            if (modLogManager.isInMemory(resourceLocation))
+            {
+                CustomModTab modTab = getAvailableModTabByResource(resourceLocation);
+                if (modTab == null) return;
+                setFocusedTab(modTab);
+                return;
+            }
+            ModTab modTab = modLogManager.createInMemoryCopyOf(resourceLocation);
+            setFocusedTab(new CustomModTab(modTab, true));
+            availableTabs.add(focusedTab);
+//            this.editButton.visible = false;
+//            this.cancelEditButton.visible = true;
+//            this.saveCopyButton.active = true;
+        }));
+
+        this.cancelEditButton = this.addButton(new Button(guiLeft + 7, guiTop + 170, 50, 20, new StringTextComponent("Cancel"), p_onPress_1_ -> {
+            System.out.println("Cancel Edit");
+            availableTabs.remove(focusedTab);
+            modLogManager.getInMemoryTabs().remove(modLogManager.getModTabResourceLocation(focusedTab.modTab));
+            setFocusedTab(null);
+//            this.editButton.visible = true;
+//            this.cancelEditButton.visible = false;
+//            this.saveCopyButton.active = false;
+        }));
+
+        this.saveCopyButton = this.addButton(new Button(guiLeft + 60, guiTop + 170, 80, 20, new StringTextComponent("Save Copy"), p_onPress_1_ -> {
+            System.out.println("Save Copy");
+        }));
+
+        this.editButton.visible = false;
+        this.saveCopyButton.visible = false;
+        this.cancelEditButton.visible = false;
+        this.saveCopyButton.active = false;
     }
 
     @Override
@@ -123,10 +202,21 @@ public class ModLogScreen extends Screen {
         resetRenderButtons();
     }
 
+    private CustomModTab getAvailableModTabByResource(ResourceLocation resourceLocation)
+    {
+        for (CustomModTab availableTab : availableTabs) {
+            if (resourceLocation.equals(modLogManager.getMemoryModTabResourceLocation(availableTab.modTab))) return availableTab;
+        }
+        return null;
+    }
+
     private void resetRenderButtons()
     {
+        System.out.println("Resetting buttons");
         for (int i = 0; i < 5; i++)
         {
+            this.buttons.remove(getSectionById(i));
+            this.buttons.remove(getTabById(i));
             setSectionById(null, i);
             setTabById(null, i);
         }
@@ -137,6 +227,30 @@ public class ModLogScreen extends Screen {
         super.tick();
         if (pageTurn != null) pageTurn.active = focusedSection != null && getPagesFromSection(focusedSection) > currentPage + 1;
         if (pageBack != null) pageBack.active = currentPage > 0;
+        if (sectionUp != null) sectionUp.active = currentSectionPage > 0;
+        if (sectionDown != null) sectionDown.active = focusedTab != null && focusedTab.modTab.getTabSections().size() > (currentSectionPage + 1) * 5;
+
+        if (focusedTab != null && focusedTab.isOnMemory)
+        {
+            if (editButton != null) editButton.visible = false;
+            if (cancelEditButton != null) cancelEditButton.visible = true;
+            if (saveCopyButton != null)
+            {
+                saveCopyButton.active = true;
+                saveCopyButton.visible = true;
+            }
+        } else {
+            if (editButton != null) editButton.visible = focusedTab != null;
+            if (cancelEditButton != null) cancelEditButton.visible = false;
+            if (saveCopyButton != null)
+            {
+                saveCopyButton.visible = focusedTab != null;
+                saveCopyButton.active = false;
+            }
+        }
+
+        //buttons.clear();
+        //init();
     }
 
     @Override
@@ -159,23 +273,42 @@ public class ModLogScreen extends Screen {
         {
             int currentPage = i + (5 * currentTabPage);
             if (currentPage >= availableTabs.size()) break;
+            CustomModTab currentModTab = availableTabs.get(currentPage);
+
             if (getTabById(i) == null)
             {
-                setTabById(this.addButton(new ModTabButton(startX - 30, startY + tabY, 30, 26, availableTabs.get(currentPage), new StringTextComponent("tab"), p_onPress_1_ -> {
-                    setFocusedTab(((ModTabButton)p_onPress_1_).modTab);
+                setTabById(this.addButton(new ModTabButton(startX - 30, startY + tabY, 30, 26, currentModTab, new StringTextComponent("tab"), p_onPress_1_ -> {
+                    setFocusedTab(availableTabs.get(currentPage));
                 })), i);
             }
-            renderTab(matrixStack, createItemStackFromResource(availableTabs.get(currentPage).getTabItem()), startX, startY + tabY, true, false);
+
+            if (currentModTab.equals(focusedTab))
+            {
+                if (focusedTab.isOnMemory)
+                {
+                    renderSelectedMemoryTab(matrixStack, createItemStackFromResource(currentModTab.modTab.getTabItem()), startX + 3, startY + tabY, true, false);
+                } else {
+                    renderSelectedTab(matrixStack, createItemStackFromResource(currentModTab.modTab.getTabItem()), startX + 3, startY + tabY, true, false);
+                }
+            } else
+            {
+                if (currentModTab.isOnMemory)
+                {
+                    renderMemoryTab(matrixStack, createItemStackFromResource(currentModTab.modTab.getTabItem()), startX, startY + tabY, true, false);
+                } else {
+                    renderTab(matrixStack, createItemStackFromResource(currentModTab.modTab.getTabItem()), startX, startY + tabY, true, false);
+                }
+            }
             tabY += 4 + 26;
         }
 
         if (availableTabs.size() > (currentTabPage + 1) * 5)
         {
-            renderUpArrow(matrixStack, startX - 5, startY - 6, true, false);
+            renderDownArrow(matrixStack, startX - 5, startY + 159, true, false);
         }
         if (currentTabPage > 0)
         {
-            renderDownArrow(matrixStack, startX - 5, startY + 159, true, false);
+            renderUpArrow(matrixStack, startX - 5, startY - 6, true, false);
         }
 
         // Rendering Sections
@@ -184,9 +317,9 @@ public class ModLogScreen extends Screen {
         {
             if (focusedSection == null)
             {
-                centeredString(matrixStack, font, "\u00A7l" + font.trimStringToWidth(focusedTab.getTabName(), 100), (this.width / 2), startY + 17, 0xFFFFFF);
+                centeredString(matrixStack, font, "\u00A7l" + font.trimStringToWidth(focusedTab.modTab.getTabName(), 100), (this.width / 2), startY + 17, 0xFFFFFF);
                 AtomicInteger skipLine = new AtomicInteger();
-                font.trimStringToWidth(new StringTextComponent(focusedTab.getTabDescription()), 125).forEach(iReorderingProcessor -> {
+                font.trimStringToWidth(new StringTextComponent(focusedTab.modTab.getTabDescription()), 125).forEach(iReorderingProcessor -> {
                     font.func_238422_b_(matrixStack, iReorderingProcessor, startX + 12, startY + 35 + skipLine.get(), 0xFFFFFF);
                     skipLine.set(skipLine.get() + 10);
                 });
@@ -198,47 +331,63 @@ public class ModLogScreen extends Screen {
             for (int i = 0; i < 5; i++)
             {
                 int currentPage = i + (5 * currentSectionPage);
-                if (currentPage >= focusedTab.getTabSections().size()) break;
+                if (currentPage >= focusedTab.modTab.getTabSections().size()) break;
+                ModTab.Section section = focusedTab.modTab.getTabSections().get(currentPage);
                 if (getSectionById(i) == null)
                 {
-                    setSectionById(this.addButton(new Button(startX + 147, startY + tabY, 30, 26, new StringTextComponent("tab"), p_onPress_1_ -> {
-                        setFocusedSection(focusedTab.getTabSections().get(currentPage));
+                    System.out.println("Resetting sections");
+                    setSectionById(this.addButton(new DoNotRenderButton(startX + 147, startY + tabY, 30, 26, new StringTextComponent("tab"), p_onPress_1_ -> {
+                        System.out.println("Setting section from " + focusedTab.modTab.getTabName());
+                        setFocusedSection(focusedTab.modTab.getTabSections().get(currentPage));
                         System.out.println("You pressed section " + focusedSection.getSectionName());
                     })), i);
                 }
-                renderSection(matrixStack, createItemStackFromResource(focusedTab.getTabSections().get(currentPage).getSectionItem()), startX + 147, startY + tabY, false, false);
+                if (section.equals(focusedSection))
+                {
+                    renderSelectedSection(matrixStack, createItemStackFromResource(focusedTab.modTab.getTabSections().get(currentPage).getSectionItem()), startX + 144, startY + tabY, false, false);
+                } else
+                {
+                    renderSection(matrixStack, createItemStackFromResource(focusedTab.modTab.getTabSections().get(currentPage).getSectionItem()), startX + 147, startY + tabY, false, false);
+                }
                 tabY += 4 + 26;
             }
 
         }
 
-        if (focusedTab != null && focusedTab.getTabSections().size() > (currentSectionPage + 1) * 5)
+        if (focusedTab != null && focusedTab.modTab.getTabSections().size() > (currentSectionPage + 1) * 5)
         {
-            renderUpArrow(matrixStack, startX + 152, startY - 6, false, false);
+            renderDownArrow(matrixStack, startX + 152, startY + 159, false, false);
         }
         if (currentSectionPage > 0)
         {
-            renderDownArrow(matrixStack, startX + 152, startY + 159, false, false);
+            renderUpArrow(matrixStack, startX + 152, startY - 6, false, false);
         }
 
         // Rendering Contents
 
         if (focusedSection != null)
         {
-            centeredString(matrixStack, font, "\u00A7l" + font.trimStringToWidth(focusedSection.getSectionPage().getPageTitle(), 100), (this.width / 2), startY + 17, 0xFFFFFF);
-            AtomicInteger skipLine = new AtomicInteger();
+            ModTab.Section.Page currentPage = focusedSection.getSectionPages().get(this.currentPage);
 
-            List<IReorderingProcessor> linesFromPage = getLinesFromPage(focusedSection.getSectionPage().getPageContents());
-            if (linesFromPage.size() > currentPage * LINES_PER_PAGE)
+            if (currentPage != null)
             {
-                int lastReadLine = currentPage * LINES_PER_PAGE + LINES_PER_PAGE;
-                linesFromPage = linesFromPage.subList(currentPage * LINES_PER_PAGE, currentPage * LINES_PER_PAGE + lastReadLine < linesFromPage.size() ? lastReadLine : linesFromPage.size());
-            }
+                centeredString(matrixStack, font, "\u00A7l" + font.trimStringToWidth(currentPage.getPageTitle(), 100), (this.width / 2), startY + 17, 0xFFFFFF);
+                AtomicInteger skipLine = new AtomicInteger();
 
-            linesFromPage.forEach(iReorderingProcessor -> {
-                font.func_238422_b_(matrixStack, iReorderingProcessor, startX + 12, startY + 35 + skipLine.get(), 0xFFFFFF);
-                skipLine.set(skipLine.get() + 10);
-            });
+                List<IReorderingProcessor> lines = getLinesFromPage(currentPage.getPageContents());
+                List<String> linesString = getStringLinesFromPage(currentPage.getPageContents());
+                System.out.println(lines.size());
+                System.out.println(linesString.size());
+                if (lines.size() > LINES_PER_PAGE)
+                {
+                    lines = lines.subList(0, LINES_PER_PAGE);
+                }
+
+                lines.forEach(iReorderingProcessor -> {
+                    font.func_238422_b_(matrixStack, iReorderingProcessor, startX + 12, startY + 35 + skipLine.get(), 0xFFFFFF);
+                    skipLine.set(skipLine.get() + 10);
+                });
+            }
 
             this.minecraft.getTextureManager().bindTexture(ASSETS);
         }
@@ -252,7 +401,44 @@ public class ModLogScreen extends Screen {
             renderNextArrow(matrixStack, startX + 117, startY + 154, false, true);
         }
 
-        //super.render(matrixStack, mouseX, mouseY, partialTicks);
+        for(int i = 0; i < this.buttons.size(); ++i) {
+            Widget button = this.buttons.get(i);
+            if (button instanceof DoNotRenderButton) continue;
+            button.render(matrixStack, mouseX, mouseY, partialTicks);
+        }
+
+//        AbstractGui.fill(matrixStack, startX - 1 + 15, startY - 1 + 15, startX + 15, startY + 10 + 15, -16777216);
+
+    }
+
+    private void selectText(Rectangle2d[] coords) {
+        Tessellator tessellator = Tessellator.getInstance();
+        BufferBuilder bufferbuilder = tessellator.getBuffer();
+        RenderSystem.color4f(0.0F, 0.0F, 255.0F, 255.0F);
+        RenderSystem.disableTexture();
+        RenderSystem.enableColorLogicOp();
+        RenderSystem.logicOp(GlStateManager.LogicOp.OR_REVERSE);
+        bufferbuilder.begin(7, DefaultVertexFormats.POSITION);
+
+        for(Rectangle2d rectangle2d : coords) {
+            int i = rectangle2d.getX();
+            int j = rectangle2d.getY();
+            int k = i + rectangle2d.getWidth();
+            int l = j + rectangle2d.getHeight();
+            bufferbuilder.pos((double)i, (double)l, 0.0D).endVertex();
+            bufferbuilder.pos((double)k, (double)l, 0.0D).endVertex();
+            bufferbuilder.pos((double)k, (double)j, 0.0D).endVertex();
+            bufferbuilder.pos((double)i, (double)j, 0.0D).endVertex();
+        }
+
+        tessellator.draw();
+        RenderSystem.disableColorLogicOp();
+        RenderSystem.enableTexture();
+    }
+
+    private int getWidthOfLine(String line)
+    {
+        return font.getStringWidth(line);
     }
 
     private ItemStack createItemStackFromResource(ResourceLocation resourceLocation)
@@ -265,10 +451,26 @@ public class ModLogScreen extends Screen {
         return font.trimStringToWidth(new StringTextComponent(contents), 125);
     }
 
+    private List<String> getStringLinesFromPage(String contents)
+    {
+        List<String> lines = new ArrayList<>();
+        while (font.getStringWidth(contents) > 118)
+        {
+            String cutOut = font.trimStringToWidth(contents, 118);
+            lines.add(cutOut);
+            System.out.println(contents);
+            int indexOf = contents.indexOf(cutOut);
+            if (indexOf != -1)
+            {
+                contents = contents.substring(indexOf + cutOut.length());
+            }
+        }
+        return lines;
+    }
+
     private int getPagesFromSection(ModTab.Section section)
     {
-        List<IReorderingProcessor> lines = getLinesFromPage(section.getSectionPage().getPageContents());
-        return (lines.size() / LINES_PER_PAGE) + 1;
+        return section.getSectionPages().size();
     }
 
     private void centeredString(MatrixStack matrixStack, FontRenderer fontRenderer, String text, int x, int y, int color)
@@ -285,13 +487,16 @@ public class ModLogScreen extends Screen {
 
     private void setFocusedSection(ModTab.Section section)
     {
+        System.out.println("Setting Focused Section to " + (section != null ? section.getSectionName() : "null"));
         this.focusedSection = section;
         currentPage = 0;
     }
 
-    private void setFocusedTab(ModTab tab)
+    private void setFocusedTab(CustomModTab tab)
     {
+        System.out.println("Setting Focused Tab to " + (tab != null ? tab.modTab.getTabName() : "null"));
         this.focusedTab = tab;
+        resetRenderButtons();
         setFocusedSection(null);
         currentSectionPage = 0;
     }
@@ -301,11 +506,25 @@ public class ModLogScreen extends Screen {
         this.blit(matrixStack, x, y, 1, 1, 147, 166);
     }
 
+    private void renderSelectedMemoryTab(MatrixStack matrixStack, ItemStack itemStack, int x, int y, boolean addSelfX, boolean addSelfY)
+    {
+        itemRenderer.renderItemAndEffectIntoGUI(itemStack, x - (addSelfX ? 35 : 0) + 10, y - (addSelfY ? 26 : 0) + 5);
+        this.minecraft.getTextureManager().bindTexture(ASSETS);
+        this.blit(matrixStack, x - (addSelfX ? 35 : 0), y - (addSelfY ? 26 : 0), 135, 191, 35, 26);
+    }
+
     private void renderSelectedTab(MatrixStack matrixStack, ItemStack itemStack, int x, int y, boolean addSelfX, boolean addSelfY)
     {
-        itemRenderer.renderItemAndEffectIntoGUI(itemStack, x - (addSelfX ? 35 : 0) + 13, y - (addSelfY ? 26 : 0) + 4);
+        itemRenderer.renderItemAndEffectIntoGUI(itemStack, x - (addSelfX ? 35 : 0) + 10, y - (addSelfY ? 26 : 0) + 5);
         this.minecraft.getTextureManager().bindTexture(ASSETS);
         this.blit(matrixStack, x - (addSelfX ? 35 : 0), y - (addSelfY ? 26 : 0), 1, 191, 35, 26);
+    }
+
+    private void renderMemoryTab(MatrixStack matrixStack, ItemStack itemStack, int x, int y, boolean addSelfX, boolean addSelfY)
+    {
+        itemRenderer.renderItemAndEffectIntoGUI(itemStack, x - (addSelfX ? 35 : 0) + 13, y - (addSelfY ? 26 : 0) + 5);
+        this.minecraft.getTextureManager().bindTexture(ASSETS);
+        this.blit(matrixStack, x - (addSelfX ? 30 : 0), y - (addSelfY ? 26 : 0), 171, 191, 30, 26);
     }
 
     private void renderTab(MatrixStack matrixStack, ItemStack itemStack, int x, int y, boolean addSelfX, boolean addSelfY)
@@ -324,7 +543,7 @@ public class ModLogScreen extends Screen {
 
     private void renderSelectedSection(MatrixStack matrixStack, ItemStack itemStack, int x, int y, boolean addSelfX, boolean addSelfY)
     {
-        itemRenderer.renderItemAndEffectIntoGUI(itemStack, x - (addSelfX ? 35 : 0) + 13, y - (addSelfY ? 26 : 0) + 4);
+        itemRenderer.renderItemAndEffectIntoGUI(itemStack, x - (addSelfX ? 35 : 0) + 8, y - (addSelfY ? 26 : 0) + 5);
         this.minecraft.getTextureManager().bindTexture(ASSETS);
         this.blit(matrixStack, x - (addSelfX ? 35 : 0), y - (addSelfY ? 26 : 0), 99, 191, 35, 26);
     }

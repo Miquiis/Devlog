@@ -1,21 +1,16 @@
 package me.miquiis.devlog.common.data;
 
-import com.google.gson.*;
-import net.minecraft.loot.*;
-import net.minecraft.loot.conditions.ILootCondition;
-import net.minecraft.loot.functions.ILootFunction;
-import net.minecraft.util.JSONUtils;
 import net.minecraft.util.ResourceLocation;
-import org.apache.commons.lang3.ArrayUtils;
 
-import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
-public class ModTab {
+public class ModTab implements Cloneable {
 
-    public class Section {
+    public class Section implements Cloneable {
 
-        public class Page {
+        public class Page implements Cloneable {
 
             private final String pageTitle;
             private final String pageContents;
@@ -32,16 +27,25 @@ public class ModTab {
             public String getPageContents() {
                 return pageContents;
             }
+
+            @Override
+            public Page clone() {
+                try {
+                    return (Page) super.clone();
+                } catch (CloneNotSupportedException e) {
+                    throw new AssertionError();
+                }
+            }
         }
 
         private final String sectionName;
         private final String sectionItem;
-        private final Page sectionPage;
+        private List<Page> sectionPages;
 
-        public Section(String sectionName, String sectionItem, Page sectionPage) {
+        public Section(String sectionName, String sectionItem, List<Page> sectionPages) {
             this.sectionName = sectionName;
             this.sectionItem = sectionItem;
-            this.sectionPage = sectionPage;
+            this.sectionPages = sectionPages;
         }
 
         public String getSectionName() {
@@ -52,15 +56,26 @@ public class ModTab {
             return new ResourceLocation(sectionItem);
         }
 
-        public Page getSectionPage() {
-            return sectionPage;
+        public List<Page> getSectionPages() {
+            return sectionPages;
+        }
+
+        @Override
+        public Section clone() {
+            try {
+                Section clone = (Section) super.clone();
+                clone.sectionPages = new ArrayList<Page>(clone.sectionPages).stream().map(Page::clone).collect(Collectors.toList());
+                return clone;
+            } catch (CloneNotSupportedException e) {
+                throw new AssertionError();
+            }
         }
     }
 
     private final String tabName;
     private final String tabDescription;
     private final String tabItem;
-    private final List<Section> tabSections;
+    private List<Section> tabSections;
 
     public ModTab(String tabName, String tabDescription, String tabItem, List<Section> tabSections)
     {
@@ -86,4 +101,14 @@ public class ModTab {
         return tabSections;
     }
 
+    @Override
+    public ModTab clone() {
+        try {
+            ModTab clone = (ModTab) super.clone();
+            clone.tabSections = new ArrayList<Section>(tabSections).stream().map(Section::clone).collect(Collectors.toList());
+            return clone;
+        } catch (CloneNotSupportedException e) {
+            throw new AssertionError();
+        }
+    }
 }
